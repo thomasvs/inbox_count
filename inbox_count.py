@@ -48,6 +48,7 @@ Logs into IMAP server HOST and displays the number of messages in USERNAME's inb
     parser.add_option("-p", "--port", dest="port", default="993", help="Port of server, defaults to %default")
     parser.add_option("--password-file", dest="password_file", metavar="file", help="Read password from password file FILE")
     parser.add_option("--no-ssl", dest="ssl", action="store_false", default=True, help="Do not use SSL.")
+    parser.add_option("--folder", dest="folder", action="store", default="INBOX", help="Folder to query")
     parser.add_option("-v", "--verbose", dest="verbose", action="store_true", default=False, help="Be verbose.")
     parser.add_option("--debug", dest="debug", action="store_true", default=False, help="Be really verbose.")
 
@@ -83,10 +84,16 @@ Logs into IMAP server HOST and displays the number of messages in USERNAME's inb
 
 def get_inbox_count(server):
     """Returns the count of the server's INBOX"""
-    status, count = server.select('INBOX', readonly=True)
+    return get_folder_count(server, 'INBOX')
+
+def get_folder_count(server, folder):
+    # FIXME: GMail stores threads per tag/folder, but does not support THREAD
+    """Returns the count of the server's given folder"""
+    status, count = server.select(folder, readonly=True)
     #this count includes DELETED messages!  Guess who didn't know that about IMAP...
     logger.debug("Server returned status: %s", status)
     logger.debug("Server returned count: %s", count)
+    # this UNDELETED count applies only to the SELECTed folder
     status, message_numbers = server.search(None, 'UNDELETED')
     logger.debug("Server returned status: %s", status)
     logger.debug("Server returned UNDELETED message numbers: %s", message_numbers)
@@ -116,8 +123,8 @@ def main():
             options.password,
             ssl=options.ssl)
     
-    logging.info("Getting inbox count")
-    inbox_count = get_inbox_count(imap_server)
+    logging.info("Getting folder count")
+    inbox_count = get_folder_count(imap_server, options.folder)
     
     if options.verbose:
         logger.info("Number of emails in inbox: %d", inbox_count)
