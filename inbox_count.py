@@ -49,6 +49,7 @@ Logs into IMAP server HOST and displays the number of messages in USERNAME's inb
     parser.add_option("--password-file", dest="password_file", metavar="file", help="Read password from password file FILE")
     parser.add_option("--no-ssl", dest="ssl", action="store_false", default=True, help="Do not use SSL.")
     parser.add_option("--folder", dest="folder", action="store", default="INBOX", help="Folder to query")
+    parser.add_option("--squash-threads", dest="squash_threads", action="store_true", default=False, help="Squash threads into a single mail (useful for GMail)")
     parser.add_option("-v", "--verbose", dest="verbose", action="store_true", default=False, help="Be verbose.")
     parser.add_option("--debug", dest="debug", action="store_true", default=False, help="Be really verbose.")
 
@@ -86,7 +87,7 @@ def get_inbox_count(server):
     """Returns the count of the server's INBOX"""
     return get_folder_count(server, 'INBOX')
 
-def get_folder_count(server, folder):
+def get_folder_count(server, folder, squash_threads=True):
     # FIXME: GMail stores threads per tag/folder, but does not support THREAD
     """Returns the count of the server's given folder"""
     status, count = server.select(folder, readonly=True)
@@ -97,7 +98,39 @@ def get_folder_count(server, folder):
     status, message_numbers = server.search(None, 'UNDELETED')
     logger.debug("Server returned status: %s", status)
     logger.debug("Server returned UNDELETED message numbers: %s", message_numbers)
-    count = len(message_numbers[0].split())
+    undeleted = message_numbers[0].split()
+    count = len(undeleted)
+
+    if squash_threads:
+        from email import parser
+
+        subjects = {}
+
+        for message in undeleted:
+            data = server.fetch(message, '(BODY[HEADER])')
+            header_data = data[1][0][1]
+            p = parser.HeaderParser()
+            msg = p.parsestr(header_data)
+            # In-Reply-To and References can reference original mails that
+            # you didn't receive, so not a good indicator
+            # if 'In-Reply-To' in msg.keys() or 'References' in msg.keys():
+            #     count -= 1
+            subject = msg['Subject'].translate(None, '[]')
+            strips = ['Re: ', 'RE: ', 'Fwd: ', 'FWD: ', 'FW: ']
+
+            while True:
+                stripped = False
+                for strip in strips:
+                    if subject.startswith(strip):
+                        subject = subject[len(strip):]
+                        stripped = True
+
+                if not stripped:
+                    break
+            subjects[subject] = 1
+
+        count = len(subjects.keys())
+
     return count
 
 def parse_password_file(filename):
@@ -124,7 +157,7 @@ def main():
             ssl=options.ssl)
     
     logging.info("Getting folder count")
-    inbox_count = get_folder_count(imap_server, options.folder)
+    inbox_count = get_folder_count(imap_server, options.folder, options.squash_threads)
     
     if options.verbose:
         logger.info("Number of emails in inbox: %d", inbox_count)
